@@ -110,7 +110,7 @@ class Cascade
         $p += 4;
 
         //  read the actual trees and cascade thresholds
-        $this->tcodes = [];
+        $this->tcodes = [[]];
         $this->tpreds = [];
         $this->thresh = [];
 
@@ -118,8 +118,8 @@ class Cascade
             $length = ((1 << $this->tdepth) - 1) * 4;
 
             // read the binary tests placed in internal tree nodes
-            $this->tcodes = array_merge($this->tcodes, [0, 0, 0, 0]);
-            $this->tcodes = array_merge($this->tcodes, \array_slice($this->bytes, $p, $length));
+            $this->tcodes[] = [0, 0, 0, 0];
+            $this->tcodes[] = \array_slice($this->bytes, $p, $length);
 
             $p += $length;
 
@@ -145,6 +145,8 @@ class Cascade
 
             $p += 4;
         }
+
+        $this->tcodes = array_merge(...$this->tcodes);
     }
 
     // construct the classification function from the read data
