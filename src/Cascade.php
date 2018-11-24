@@ -88,7 +88,7 @@ class Cascade
         // Skip the first 8 bytes of the cascade file (version number and bounding box)
         $p = 8;
 
-        // read the depth (size) of each tree first: a 32-bit signed integer
+        // Depth (size) of each tree 832-bit signed integer9
         $dataView->setUint8(0, $this->bytes[$p + 1]);
         $dataView->setUint8(1, $this->bytes[$p + 2]);
         $dataView->setUint8(2, $this->bytes[$p + 3]);
@@ -98,7 +98,7 @@ class Cascade
 
         $p += 4;
 
-        // next, read the number of trees in the cascade: another 32-bit signed integer
+        // Number of trees in the cascade (32-bit signed integer)
         $dataView->setUint8(0, $this->bytes[$p + 1]);
         $dataView->setUint8(1, $this->bytes[$p + 2]);
         $dataView->setUint8(2, $this->bytes[$p + 3]);
@@ -108,7 +108,6 @@ class Cascade
 
         $p += 4;
 
-        //  read the actual trees and cascade thresholds
         $this->tcodes = [[]];
         $this->tpreds = [];
         $this->thresh = [];
@@ -116,13 +115,13 @@ class Cascade
         for ($t = 0; $t < $this->ntrees; ++$t) {
             $length = ((1 << $this->tdepth) - 1) * 4;
 
-            // read the binary tests placed in internal tree nodes
+            // Binary tests placed in internal tree nodes
             $this->tcodes[] = [0, 0, 0, 0];
             $this->tcodes[] = \array_slice($this->bytes, $p, $length);
 
             $p += $length;
 
-            // read the prediction in the leaf nodes of the tree
+            // Prediction in the leaf nodes of the tree
             for ($i = 0; $i < (1 << $this->tdepth); ++$i) {
                 $dataView->setUint8(0, $this->bytes[$p + 1]);
                 $dataView->setUint8(1, $this->bytes[$p + 2]);
@@ -134,7 +133,7 @@ class Cascade
                 $p += 4;
             }
 
-            // read the threshold
+            // Threshold
             $dataView->setUint8(0, $this->bytes[$p + 1]);
             $dataView->setUint8(1, $this->bytes[$p + 2]);
             $dataView->setUint8(2, $this->bytes[$p + 3]);
@@ -145,60 +144,98 @@ class Cascade
             $p += 4;
         }
 
+        // Merge all sub arrays into a single one
         $this->tcodes = array_merge(...$this->tcodes);
     }
 
-    // construct the classification function from the read data
-    private function classifyRegion(int $r, int $c, float $s, array $pixels, int $ldim): float
+    /**
+     * @param int   $x
+     * @param int   $y
+     * @param int   $s
+     * @param array $pixels
+     * @param int   $width
+     *
+     * @return float
+     */
+    private function runCascade(int $x, int $y, int $s, array $pixels, int $width): float
     {
-        $r *= 256;
-        $c *= 256;
+        $x *= 256;
+        $y *= 256;
+
+//        if (($y + 128 * $s) / 256 >= $height
+//            || ($y - 128 * $s) / 256 < 0
+//            || ($x + 128 * $s) / 256 >= $width
+//            || ($x - 128 * $s) / 256 < 0
+//        ) {
+//            return -1.0;
+//        }
 
         $root       = 0;
         $o          = 0.0;
         $pow2tdepth = 1 << $this->tdepth;
 
         for ($i = 0; $i < $this->ntrees; ++$i) {
-             $idx = 1;
+            $idx = 1;
 
-             for ($j = 0; $j < $this->tdepth; ++$j) {
-                 // we use '>> 8' here to perform an integer division: this seems important for performance
-                 $idx = 2 * $idx + ($pixels[(($r + $this->tcodes[$root + 4 * $idx + 0] * $s) >> 8) * $ldim + (($c + $this->tcodes[$root + 4 * $idx + 1] * $s) >> 8)]
-                                 <= $pixels[(($r + $this->tcodes[$root + 4 * $idx + 2] * $s) >> 8) * $ldim + (($c + $this->tcodes[$root + 4 * $idx + 3] * $s) >> 8)]);
-             }
+            for ($j = 0; $j < $this->tdepth; ++$j) {
+                $pos = $root + 4 * $idx;
 
-             $o += $this->tpreds[($pow2tdepth * $i) + $idx - $pow2tdepth];
+                $idx = 2 * $idx + ($pixels[(($y + $this->tcodes[$pos + 0] * $s) >> 8) * $width + (($x + $this->tcodes[$pos + 1] * $s) >> 8)]
+                                <= $pixels[(($y + $this->tcodes[$pos + 2] * $s) >> 8) * $width + (($x + $this->tcodes[$pos + 3] * $s) >> 8)]);
+            }
 
-             if ($o <= $this->thresh[$i]) {
-                 return -1;
-             }
+            $o += $this->tpreds[($pow2tdepth * $i) + $idx - $pow2tdepth];
 
-             $root += 4 * $pow2tdepth;
+            if ($o <= $this->thresh[$i]) {
+                return -1.0;
+            }
+
+            $root += 4 * $pow2tdepth;
         }
 
         return $o - $this->thresh[$this->ntrees - 1];
     }
 
-    public function runCascade(array $image, int $width, int $height, array $params): array
-    {
-        $shiftFactor = $params['shiftFactor'];
-        $minSize     = $params['minSize'];
-        $maxSize     = $params['maxSize'];
-        $scaleFactor = $params['scaleFactor'];
-        $scale       = $minSize;
-        $detections  = [];
+    /**
+     * Finds objects inside a gray scale image.
+     *
+     * @param array $image        The gray scale image used to detect the objects.
+     * @param int   $width        The width of the image.
+     * @param int   $height       The height of the image.
+     * @param int   $minSize      The minimum size of a face in pixel.
+     * @param int   $maxSize      The maximum size of a face in pixel.
+     * @param float $scaleFactor  How much to rescale the window during the multi scale detection process.
+     * @param float $strideFactor How much to move the window between neighboring detections (default is 0.1, i.e., 10%).
+     *
+     * @return array List of quadruplets containing info about detected objects.
+     */
+    public function findObjects(
+        array $image,
+        int $width,
+        int $height,
+        int $minSize = 100,
+        int $maxSize = 1000,
+        float $scaleFactor = 1.1,
+        float $strideFactor = 0.1
+    ): array {
+        $scale      = (float) $minSize;
+        $detections = [];
 
         while ($scale <= $maxSize) {
-            // '>>0' transforms this number to int
-            $step   = max($shiftFactor * $scale, 1) >> 0;
-            $offset = ($scale / 2 + 1) >> 0;
+            $step   = max($strideFactor * $scale, 1.0);
+            $offset = ($scale / 2.0) + 1;
 
-            for ($r = $offset; $r <= $height - $offset; $r += $step) {
-                for ($c = $offset; $c <= $width - $offset; $c += $step) {
-                    $q = $this->classifyRegion($r, $c, $scale, $image, $width);
+            for ($y = $offset; $y <= $height - $offset; $y += $step) {
+                for ($x = $offset; $x <= $width - $offset; $x += $step) {
+                    $q = $this->runCascade((int) $x, (int) $y, (int) $scale, $image, $width);
 
                     if ($q > 0.0) {
-                        $detections[] = [$r, $c, $scale, $q];
+                        $detections[] = [
+                            'c' => $x,
+                            'r' => $y,
+                            's' => $scale,
+                            'q' => $q,
+                        ];
                     }
                 }
             }
@@ -209,66 +246,77 @@ class Cascade
         return $detections;
     }
 
-    // this helper function calculates the intersection over union for two detections
-    public function calculateIntersection(array $det1, array $det2): float
+    /**
+     * Calculates the intersection over union for two detections.
+     *
+     * @param array $detectionOne The first detection.
+     * @param array $detectionTwo The second detection.
+     *
+     * @return float
+     */
+    private function calculateIntersection(array $detectionOne, array $detectionTwo): float
     {
-        // unpack the position and size of each detection
-        list($r1, $c1, $s1) = $det1;
-        list($r2, $c2, $s2) = $det2;
+        $r1 = $detectionOne['r'];
+        $c1 = $detectionOne['c'];
+        $s1 = $detectionOne['s'];
 
-        // calculate detection overlap in each dimension
-        $overr = max(0, min($r1 + $s1/2, $r2 + $s2/2) - max($r1 - $s1/2, $r2 - $s2/2));
-        $overc = max(0, min($c1 + $s1/2, $c2 + $s2/2) - max($c1 - $s1/2, $c2 - $s2/2));
+        $r2 = $detectionTwo['r'];
+        $c2 = $detectionTwo['c'];
+        $s2 = $detectionTwo['s'];
 
-        // calculate and return IoU
-        return $overr * $overc / ($s1 * $s1 + $s2 * $s2 - $overr * $overc);
+        $s1Half = $s1 / 2;
+        $s2Half = $s2 / 2;
+
+        // Calculate detection overlap in each dimension
+        $overX = max(0, min($c1 + $s1Half, $c2 + $s2Half) - max($c1 - $s1Half, $c2 - $s2Half));
+        $overY = max(0, min($r1 + $s1Half, $r2 + $s2Half) - max($r1 - $s1Half, $r2 - $s2Half));
+        $over  = $overY * $overX;
+
+        // Calculate and return intersection over union
+        return $over / (($s1 * $s1) + ($s2 * $s2) - $over);
     }
 
-    public function clusterDetections(array $dets, float $iouthreshold): array
+    /**
+     * Cluster the obtained objects.
+     *
+     * @param array $detections The list of detected objects (faces).
+     * @param float $threshold  The threshold used to merge overlapping regions together.
+     *
+     * @return array List of clustered detections
+     */
+    public function clusterDetections(array $detections, float $threshold): array
     {
-        // sort detections by their score
-        usort($dets, function (array $a, array $b) {
-            return $b[3] - $a[3];
-        });
+        $detectionsCount = \count($detections);
+        $assignments     = array_fill(0, $detectionsCount, 0);
+        $clusters        = [];
 
-        $detsLength = \count($dets);
-
-        // do clustering through non-maximum suppression
-        $assignments = array_fill(0, $detsLength, 0);
-
-        $clusters   = [];
-
-        for ($i = 0; $i < $detsLength; ++$i) {
-            // is this detection assigned to a cluster?
+        for ($i = 0; $i < $detectionsCount; ++$i) {
             if ($assignments[$i] === 0) {
-                // it is not:
-                // now we make a cluster out of it and see whether some other detections belong to it
-                $r = 0.0;
-                $c = 0.0;
+                $y = 0.0;
+                $x = 0.0;
                 $s = 0.0;
 
-                // accumulated confidence measure
+                // Accumulated confidence measure
                 $q = 0.0;
                 $n = 0;
 
-                for ($j = $i; $j < $detsLength; ++$j) {
-                    if ($this->calculateIntersection($dets[$i], $dets[$j]) > $iouthreshold) {
+                for ($j = $i; $j < $detectionsCount; ++$j) {
+                    if ($this->calculateIntersection($detections[$i], $detections[$j]) > $threshold) {
                         $assignments[$j] = 1;
 
-                        $r += $dets[$j][0];
-                        $c += $dets[$j][1];
-                        $s += $dets[$j][2];
-                        $q += $dets[$j][3];
+                        $x += $detections[$j]['c'];
+                        $y += $detections[$j]['r'];
+                        $s += $detections[$j]['s'];
+                        $q += $detections[$j]['q'];
 
                         ++$n;
                     }
                 }
 
-                // make a cluster representative
                 $clusters[] = [
-                    'x' => $r / $n,
-                    'y' => $c / $n,
-                    'r' => $s / $n,
+                    'x' => (int) ($x / $n),
+                    'y' => (int) ($y / $n),
+                    'r' => (int) ($s / $n),
                     'q' => $q,
                 ];
             }

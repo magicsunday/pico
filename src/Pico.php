@@ -23,27 +23,7 @@ class Pico
      * The detection quality threshold. All detections with estimated quality
      * below this threshold will be discarded.
      */
-    const DETECTION_QUALITY_THRESHOLD = 5.0;
-
-    /**
-     * How much to rescale the window during the multi scale detection process.
-     */
-    const SCALE_FACTOR = 1.1;
-
-    /**
-     * The minimum size of a face in pixel.
-     */
-    const MIN_SIZE = 20;
-
-    /**
-     * The maximum size of a face in pixel.
-     */
-    const MAX_SIZE = 1000;
-
-    /**
-     * How much to move the window between neighboring detections (default is 0.1, i.e., 10%).
-     */
-    const STRIDE_FACTOR = 0.1;
+    const DETECTION_QUALITY_THRESHOLD = 10.0;
 
     /**
      * The face detection cascade data file.
@@ -69,43 +49,47 @@ class Pico
     {
         $cascade = new Cascade(self::CASCADE_FILE);
 
+$s = microtime(true);
+
         $image = $this->loadImageAsGrayScale('data/img.jpg');
         $gray  = $this->converter->toArray($image);
 
-        $params = [
-            'shiftFactor' => self::STRIDE_FACTOR,
-            'minSize'     => self::MIN_SIZE,
-            'maxSize'     => self::MAX_SIZE,
-            'scaleFactor' => self::SCALE_FACTOR,
-        ];
-
-$s = microtime(true);
-
-        // run the cascade over the image
+        // Run the cascade over the image
         // dets is an array that contains (r, c, s, q) quadruplets
         // (representing row, column, scale and detection score)
-        $dets = $cascade->runCascade($gray, $image->getWidth(), $image->getHeight(), $params);
+        $detections = $cascade->findObjects(
+            $gray,
+            $image->getWidth(),
+            $image->getHeight(),
+            20
+        );
+
+        // Cluster the obtained detections
+        $detections = $cascade->clusterDetections($detections, 0.2);
+
+        foreach ($detections as $detection) {
+            // Check the detection score
+            if ($detection['q'] > self::DETECTION_QUALITY_THRESHOLD) {
+                $red = imagecolorallocate($image->getResource(), 255,   0,   0);
+
+                imagearc(
+                    $image->getResource(),
+                    $detection['x'],
+                    $detection['y'],
+                    $detection['r'],
+                    $detection['r'],
+                    0,
+                    360,
+                    $red
+                );
+            }
+        }
+
+        imagepng($image->getResource(), 'test.png');
 
 var_dump(microtime(true) - $s);
 
-        // cluster the obtained detections
-        $dets = $cascade->clusterDetections($dets, 0.2); // set IoU threshold to 0.2
-
-//        for ($i = 0; $i < count($dets); ++$i) {
-//            // check the detection score
-//            // if it's above the threshold, draw it
-//            if ($dets[$i][3] > self::DETECTION_QUALITY_THRESHOLD) {
-////                ctx . beginPath();
-////                ctx . arc(dets[i][1], dets[i][0], dets[i][2] / 2, 0, 2 * Math . PI, false);
-////                ctx . lineWidth = 3;
-////                ctx . strokeStyle = 'red';
-////                ctx . stroke();
-//            }
-//        }
-
-var_dump(microtime(true) - $s);
-
-var_dump($dets);
+var_dump($detections);
 exit;
     }
 
