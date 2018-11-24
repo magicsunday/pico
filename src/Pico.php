@@ -67,8 +67,6 @@ class Pico
 
     public function open()
     {
-$s = microtime(true);
-
         $cascade = new Cascade(self::CASCADE_FILE);
 
         $image = $this->loadImageAsGrayScale('data/img.jpg');
@@ -81,10 +79,14 @@ $s = microtime(true);
             'scaleFactor' => self::SCALE_FACTOR,
         ];
 
+$s = microtime(true);
+
         // run the cascade over the image
         // dets is an array that contains (r, c, s, q) quadruplets
         // (representing row, column, scale and detection score)
         $dets = $cascade->runCascade($gray, $image->getWidth(), $image->getHeight(), $params);
+
+var_dump(microtime(true) - $s);
 
         // cluster the obtained detections
         $dets = $cascade->clusterDetections($dets, 0.2); // set IoU threshold to 0.2

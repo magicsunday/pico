@@ -7,7 +7,6 @@ declare(strict_types=1);
 namespace MagicSunday\Pico;
 
 use InvalidArgumentException;
-use RuntimeException;
 use SplFixedArray;
 
 /**
@@ -150,7 +149,7 @@ class Cascade
     }
 
     // construct the classification function from the read data
-    public function classifyRegion(int $r, int $c, float $s, array $pixels, int $ldim): float
+    private function classifyRegion(int $r, int $c, float $s, array $pixels, int $ldim): float
     {
         $r *= 256;
         $c *= 256;
@@ -214,13 +213,8 @@ class Cascade
     public function calculateIntersection(array $det1, array $det2): float
     {
         // unpack the position and size of each detection
-        $r1 = $det1[0];
-        $c1 = $det1[1];
-        $s1 = $det1[2];
-
-        $r2 = $det2[0];
-        $c2 = $det2[1];
-        $s2 = $det2[2];
+        list($r1, $c1, $s1) = $det1;
+        list($r2, $c2, $s2) = $det2;
 
         // calculate detection overlap in each dimension
         $overr = max(0, min($r1 + $s1/2, $r2 + $s2/2) - max($r1 - $s1/2, $r2 - $s2/2));
@@ -230,7 +224,7 @@ class Cascade
         return $overr * $overc / ($s1 * $s1 + $s2 * $s2 - $overr * $overc);
     }
 
-    public function clusterDetections(array $dets, $iouthreshold)
+    public function clusterDetections(array $dets, float $iouthreshold): array
     {
         // sort detections by their score
         usort($dets, function (array $a, array $b) {
@@ -240,11 +234,7 @@ class Cascade
         $detsLength = \count($dets);
 
         // do clustering through non-maximum suppression
-        $assignments = new SplFixedArray($detsLength);
-
-        for ($i = 0; $i < $detsLength; ++$i) {
-            $assignments[$i] = 0;
-        }
+        $assignments = array_fill(0, $detsLength, 0);
 
         $clusters   = [];
 
@@ -269,7 +259,8 @@ class Cascade
                         $c += $dets[$j][1];
                         $s += $dets[$j][2];
                         $q += $dets[$j][3];
-                        $n += 1;
+
+                        ++$n;
                     }
                 }
 
