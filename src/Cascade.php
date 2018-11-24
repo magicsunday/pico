@@ -6,6 +6,8 @@ declare(strict_types=1);
 
 namespace MagicSunday\Pico;
 
+use InvalidArgumentException;
+use RuntimeException;
 use SplFixedArray;
 
 /**
@@ -13,10 +15,18 @@ use SplFixedArray;
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT MIT
- * @link    https://github.com/magicsunday/ancestral-fan-chart/
+ * @link    https://github.com/magicsunday/pico/
  */
 class Cascade
 {
+    /**
+     * The cascade file content. The array index starts with 1!
+     *
+     * @var array
+     * @see http://php.net/manual/de/function.unpack.php
+     */
+    private $bytes;
+
     private $tdepth;
     private $ntrees;
     private $tcodes = [];
@@ -24,38 +34,76 @@ class Cascade
     private $thresh = [];
 
     /**
-     * Pico constructor.
+     * Cascade constructor.
+     *
+     * @param string $filename The cascade file to load.
+     *
+     * @throws InvalidArgumentException
      */
-    public function __construct()
+    public function __construct(string $filename)
     {
+        $this->load($filename);
+        $this->unpack();
     }
 
     /**
-     * @param array $bytes
+     * Reads the cascade file and returns its binary content as array.
+     *
+     * @param string $filename The cascade file to load.
+     *
+     * @return void
+     *
+     * @throws InvalidArgumentException
      */
-    public function unpackCascade(array $bytes)
+    private function load(string $filename)
+    {
+        $handle = fopen($filename, 'rb');
+
+        if (!$handle) {
+            throw new InvalidArgumentException('Failed to load cascade file.');
+        }
+
+        $size   = filesize($filename);
+        $binary = fread($handle, $size);
+
+        if (!$binary) {
+            throw new InvalidArgumentException('Failed to load cascade file.');
+        }
+
+        fclose($handle);
+
+        // ! Array starts with index 1
+        // @see http://php.net/manual/de/function.unpack.php
+        $this->bytes = unpack('c*', $binary);
+    }
+
+    /**
+     * Unpacks the cascade data.
+     *
+     * @return void
+     */
+    private function unpack()
     {
         $dataView = new DataView(new SplFixedArray(4));
 
-        // we skip the first 8 bytes of the cascade file
-        // (version number and bounding box)
+        // Skip the first 8 bytes of the cascade file (version number and bounding box)
         $p = 8;
 
         // read the depth (size) of each tree first: a 32-bit signed integer
-        $dataView->setUint8(0, $bytes[$p + 1]);
-        $dataView->setUint8(1, $bytes[$p + 2]);
-        $dataView->setUint8(2, $bytes[$p + 3]);
-        $dataView->setUint8(3, $bytes[$p + 4]);
+        $dataView->setUint8(0, $this->bytes[$p + 1]);
+        $dataView->setUint8(1, $this->bytes[$p + 2]);
+        $dataView->setUint8(2, $this->bytes[$p + 3]);
+        $dataView->setUint8(3, $this->bytes[$p + 4]);
 
         $this->tdepth = $dataView->getInt32(0);
 
         $p += 4;
 
         // next, read the number of trees in the cascade: another 32-bit signed integer
-        $dataView->setUint8(0, $bytes[$p + 1]);
-        $dataView->setUint8(1, $bytes[$p + 2]);
-        $dataView->setUint8(2, $bytes[$p + 3]);
-        $dataView->setUint8(3, $bytes[$p + 4]);
+        $dataView->setUint8(0, $this->bytes[$p + 1]);
+        $dataView->setUint8(1, $this->bytes[$p + 2]);
+        $dataView->setUint8(2, $this->bytes[$p + 3]);
+        $dataView->setUint8(3, $this->bytes[$p + 4]);
 
         $this->ntrees = $dataView->getInt32(0);
 
@@ -71,16 +119,16 @@ class Cascade
 
             // read the binary tests placed in internal tree nodes
             $this->tcodes = array_merge($this->tcodes, [0, 0, 0, 0]);
-            $this->tcodes = array_merge($this->tcodes, array_slice($bytes, $p, $length));
+            $this->tcodes = array_merge($this->tcodes, \array_slice($this->bytes, $p, $length));
 
             $p += $length;
 
             // read the prediction in the leaf nodes of the tree
             for ($i = 0; $i < (1 << $this->tdepth); ++$i) {
-                $dataView->setUint8(0, $bytes[$p + 1]);
-                $dataView->setUint8(1, $bytes[$p + 2]);
-                $dataView->setUint8(2, $bytes[$p + 3]);
-                $dataView->setUint8(3, $bytes[$p + 4]);
+                $dataView->setUint8(0, $this->bytes[$p + 1]);
+                $dataView->setUint8(1, $this->bytes[$p + 2]);
+                $dataView->setUint8(2, $this->bytes[$p + 3]);
+                $dataView->setUint8(3, $this->bytes[$p + 4]);
 
                 $this->tpreds[] = $dataView->getFloat32(0);
 
@@ -88,24 +136,15 @@ class Cascade
             }
 
             // read the threshold
-            $dataView->setUint8(0, $bytes[$p + 1]);
-            $dataView->setUint8(1, $bytes[$p + 2]);
-            $dataView->setUint8(2, $bytes[$p + 3]);
-            $dataView->setUint8(3, $bytes[$p + 4]);
+            $dataView->setUint8(0, $this->bytes[$p + 1]);
+            $dataView->setUint8(1, $this->bytes[$p + 2]);
+            $dataView->setUint8(2, $this->bytes[$p + 3]);
+            $dataView->setUint8(3, $this->bytes[$p + 4]);
 
             $this->thresh[] = $dataView->getFloat32(0);
 
             $p += 4;
         }
-
-        $x = 1;
-//        for ($i = 0; $i < count($this->tcodes); ++$i) {
-//            $this->tcodes[$i] = (int) $this->tcodes[$i];
-//        }
-
-//        $this->tcodes = new Int8Array($this->tcodes);
-//        $this->tpreds = new Float32Array($this->tpreds);
-//        $this->thresh = new Float32Array($this->thresh);
     }
 
     // construct the classification function from the read data

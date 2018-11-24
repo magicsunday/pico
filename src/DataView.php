@@ -14,7 +14,7 @@ use SplFixedArray;
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT MIT
- * @link    https://github.com/magicsunday/ancestral-fan-chart/
+ * @link    https://github.com/magicsunday/pico/
  */
 class DataView
 {

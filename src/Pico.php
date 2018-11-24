@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\Pico;
 
+use MagicSunday\Pico\Image\Converter;
 use RuntimeException;
 use SplFixedArray;
 
@@ -14,7 +15,7 @@ use SplFixedArray;
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/MIT MIT
- * @link    https://github.com/magicsunday/ancestral-fan-chart/
+ * @link    https://github.com/magicsunday/pico/
  */
 class Pico
 {
@@ -50,62 +51,28 @@ class Pico
     const CASCADE_FILE = 'data/face.cascade';
 
     /**
+     * The image converter utility.
+     *
+     * @var Converter
+     */
+    private $converter;
+
+    /**
      * Pico constructor.
      */
     public function __construct()
     {
-    }
-
-    /**
-     * Reads the cascade file and returns its binary content as array.
-     *
-     * @return array The array index starts with 1!
-     *
-     * @throws RuntimeException
-     */
-    private function readCascadeFile(): array
-    {
-        $handle = fopen(self::CASCADE_FILE, 'rb');
-
-        if (!$handle) {
-            throw new RuntimeException('Failed to load cascade file');
-        }
-
-        $size   = filesize(self::CASCADE_FILE);
-        $binary = fread($handle, $size);
-
-        if (!$binary) {
-            throw new RuntimeException('Failed to load cascade file');
-        }
-
-        fclose($handle);
-
-        // ! Array starts with index 1
-        // @see http://php.net/manual/de/function.unpack.php
-        return unpack('c*', $binary);
+        $this->converter = new Converter();
     }
 
     public function open()
     {
-        $bytes = $this->readCascadeFile();
+$s = microtime(true);
 
-        $cascade = new Cascade();
-        $cascade->unpackCascade($bytes);
+        $cascade = new Cascade(self::CASCADE_FILE);
 
-//$s = microtime(true);
-
-        $image  = imagecreatefromjpeg('data/img.jpg');
-        $width  = imagesx($image);
-        $height = imagesy($image);
-
-        // Convert image to a grayscale one
-        imagefilter($image, IMG_FILTER_GRAYSCALE);
-
-        $gray = $this->readImage($image, $width, $height);
-
-        imagedestroy($image);
-
-//var_dump(microtime(true) - $s);
+        $image = $this->loadImageAsGrayScale('data/img.jpg');
+        $gray  = $this->converter->toArray($image);
 
         $params = [
             'shiftFactor' => self::STRIDE_FACTOR,
@@ -117,7 +84,7 @@ class Pico
         // run the cascade over the image
         // dets is an array that contains (r, c, s, q) quadruplets
         // (representing row, column, scale and detection score)
-        $dets = $cascade->runCascade($gray, $width, $height, $params);
+        $dets = $cascade->runCascade($gray, $image->getWidth(), $image->getHeight(), $params);
 
         // cluster the obtained detections
         $dets = $cascade->clusterDetections($dets, 0.2); // set IoU threshold to 0.2
@@ -134,64 +101,24 @@ class Pico
 //            }
 //        }
 
+var_dump(microtime(true) - $s);
+
 var_dump($dets);
 exit;
     }
 
     /**
-     * @param resource $image
-     * @param int      $width
-     * @param int      $height
+     * Loads the image and converts it to gray scale.
      *
-     * @return array
-     */
-    public function readImage($image, int $width, int $height): array
-    {
-        $data = [];
-
-        for ($y = 0; $y < $height; ++$y) {
-            for ($x = 0; $x < $width; ++$x) {
-                $rgb = imagecolorat($image, $x, $y);
-                $pos = ($y * $width) + $x;
-
-                $data[($y * $width) + $x] = $rgb;
-
-//                $data[$pos]['r'] = ($rgb >> 16) & 0xff;
-//                $data[$pos]['g'] = ($rgb >> 8) & 0xff;
-//                $data[$pos]['b'] = $rgb & 0xff;
-            }
-        }
-
-        return $data;
-    }
-
-    /**
-     * @param array $rgb
-     * @param int   $width
-     * @param int   $height
+     * @param string $filename The image file to load.
      *
-     * @return array
+     * @return Image
      */
-    public function rgb2gray(array $rgb, int $width, int $height): array
+    private function loadImageAsGrayScale(string $filename): Image
     {
-        $data = [];
+        $image = new Image($filename);
+        $this->converter->toGrayScale($image);
 
-        for ($y = 0; $y < $height; ++$y) {
-            for ($x = 0; $x < $width; ++$x) {
-                $color = $rgb[($y * $width) + $x];
-
-                // Multiplied the REC601 luma components by 256 (avoiding floating point operations)
-                // gray = 0.299 * r + 0.587 * g + 0.114 * b
-//                $gray = ($color['r'] * 77) + ($color['g'] * 150) + ($color['b'] * 29);
-
-                $gray = ($color['r'] * 2) + ($color['g'] * 7) + ($color['b'] * 1);
-
-                // Unshift the result
-                $data[($y * $width) + $x] = (int) ($gray / 10);
-//                $data[($y * $width) + $x] = $gray >> 8;
-            }
-        }
-
-        return $data;
+        return $image;
     }
 }
