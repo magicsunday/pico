@@ -61,7 +61,7 @@ class Image
     }
 
     /**
-     * Returns the underlying image resouce.
+     * Returns the underlying image resource.
      *
      * @return resource
      */
@@ -105,23 +105,34 @@ class Image
             throw new InvalidArgumentException('File "' . $filename . '" not found.');
         }
 
-        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $mimeType = finfo_file(finfo_open(FILEINFO_MIME_TYPE), $filename);
 
-        switch ($ext) {
-            case 'jpeg':
-            case 'jpg':
+        switch (strtolower($mimeType)) {
+            case 'image/jpeg':
                 return imagecreatefromjpeg($filename);
 
-            case 'png':
+            case 'image/png':
                 return imagecreatefrompng($filename);
 
-            case 'gif':
+            case 'image/gif':
                 return imagecreatefromgif($filename);
 
             default:
                 throw new InvalidArgumentException(
-                    'File "' . $filename . '" specifies not a valid JPG, PNG or GIF image.
-                ');
+                    'File "' . $filename . '" specifies not a valid JPG, PNG or GIF image.'
+                );
         }
+    }
+
+    /**
+     * Saves the image as PNG.
+     *
+     * @param string $filename The filename used to save to image.
+     *
+     * @return bool
+     */
+    public function saveAsPng(string $filename): bool
+    {
+        return imagepng($this->image, $filename);
     }
 }

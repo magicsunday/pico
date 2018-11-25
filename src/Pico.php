@@ -7,8 +7,6 @@ declare(strict_types=1);
 namespace MagicSunday\Pico;
 
 use MagicSunday\Pico\Image\Converter;
-use RuntimeException;
-use SplFixedArray;
 
 /**
  * Pico class.
@@ -54,9 +52,7 @@ $s = microtime(true);
         $image = $this->loadImageAsGrayScale('data/img.jpg');
         $gray  = $this->converter->toArray($image);
 
-        // Run the cascade over the image
-        // dets is an array that contains (r, c, s, q) quadruplets
-        // (representing row, column, scale and detection score)
+        // Find objects in image
         $detections = $cascade->findObjects(
             $gray,
             $image->getWidth(),
@@ -69,15 +65,15 @@ $s = microtime(true);
 
         foreach ($detections as $detection) {
             // Check the detection score
-            if ($detection['q'] > self::DETECTION_QUALITY_THRESHOLD) {
-                $red = imagecolorallocate($image->getResource(), 255,   0,   0);
+            if ($detection->getScore() > self::DETECTION_QUALITY_THRESHOLD) {
+                $red = imagecolorallocate($image->getResource(), 255, 0, 0);
 
                 imagearc(
                     $image->getResource(),
-                    $detection['x'],
-                    $detection['y'],
-                    $detection['r'],
-                    $detection['r'],
+                    $detection->getX(),
+                    $detection->getY(),
+                    $detection->getScale(),
+                    $detection->getScale(),
                     0,
                     360,
                     $red
@@ -85,7 +81,7 @@ $s = microtime(true);
             }
         }
 
-        imagepng($image->getResource(), 'test.png');
+        $image->saveAsPng('test.png');
 
 var_dump(microtime(true) - $s);
 
