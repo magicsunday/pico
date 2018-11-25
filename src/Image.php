@@ -61,7 +61,7 @@ class Image
     }
 
     /**
-     * Returns the underlying image resouce.
+     * Returns the underlying image resource.
      *
      * @return resource
      */
