@@ -186,7 +186,7 @@ class Cascade
      *
      * @return float
      */
-    private function runCascade(int $x, int $y, int $s, array $pixels, int $width): float
+    private function runCascade(int $x, int $y, int $s, array $pixels, int $width, array $lut): float
     {
         $x <<= 8; // * 256
         $y <<= 8; // * 256
@@ -199,6 +199,9 @@ class Cascade
 //            return -1.0;
 //        }
 
+//          (($y* $width  + $this->treeCodes[$pos + 0] * $s * $width ) / (256 * $width))
+//        + (($x + $this->treeCodes[$pos + 1] * $s) >> 8)
+
         $root          = 0;
         $o             = 0.0;
         $pow2treeDepth = 1 << $this->treeDepth;
@@ -210,8 +213,11 @@ class Cascade
             for ($j = 0; $j < $this->treeDepth; ++$j) {
                 $pos = $root + ($idx << 2); // idx * 4
 
-                $idx = 2 * $idx + ($pixels[(($y + $this->treeCodes[$pos + 0] * $s) >> 8) * $width + (($x + $this->treeCodes[$pos + 1] * $s) >> 8)]
-                                <= $pixels[(($y + $this->treeCodes[$pos + 2] * $s) >> 8) * $width + (($x + $this->treeCodes[$pos + 3] * $s) >> 8)]);
+                $idx = 2 * $idx + ($pixels[(($y + $lut[$pos][$s][0]) >> 8) * $width + (($x + $lut[$pos][$s][1]) >> 8)]
+                                <= $pixels[(($y + $lut[$pos][$s][2]) >> 8) * $width + (($x + $lut[$pos][$s][3]) >> 8)]);
+
+//                $idx = 2 * $idx + ($pixels[(($y + $this->treeCodes[$pos + 0] * $s) >> 8) * $width + (($x + $this->treeCodes[$pos + 1] * $s) >> 8)]
+//                                <= $pixels[(($y + $this->treeCodes[$pos + 2] * $s) >> 8) * $width + (($x + $this->treeCodes[$pos + 3] * $s) >> 8)]);
             }
 
             $o += $this->predictions[$predIdx + $idx];
@@ -224,6 +230,30 @@ class Cascade
         }
 
         return $o - $this->thresholds[$this->numberOfTrees - 1];
+    }
+
+    private function createLut(int $s)
+    {
+        $lut  = [];
+        $root = 0;
+        $pow2treeDepth = 1 << $this->treeDepth;
+
+        for ($i = 0; $i < $this->numberOfTrees; ++$i) {
+            $idx = 1;
+
+            for ($j = 0; $j < $this->treeDepth; ++$j) {
+                $pos = $root + ($idx << 2);
+
+                $lut[$pos][$s][0] = $this->treeCodes[$pos + 0] * $s;
+                $lut[$pos][$s][1] = $this->treeCodes[$pos + 1] * $s;
+                $lut[$pos][$s][2] = $this->treeCodes[$pos + 2] * $s;
+                $lut[$pos][$s][3] = $this->treeCodes[$pos + 3] * $s;
+            }
+
+            $root += $pow2treeDepth << 2;
+        }
+
+        return $lut;
     }
 
     /**
@@ -252,12 +282,16 @@ class Cascade
         $detections = [];
 
         while ($scale <= $maxSize) {
-            $step   = max($strideFactor * $scale, 1.0);
-            $offset = ($scale / 2.0) + 1;
+            $step    = max($strideFactor * $scale, 1.0);
+            $offset  = ($scale / 2.0) + 1;
+            $xOffset = $width - $offset;
+            $yOffset = $height - $offset;
 
-            for ($y = $offset; $y <= $height - $offset; $y += $step) {
-                for ($x = $offset; $x <= $width - $offset; $x += $step) {
-                    $q = $this->runCascade((int) $x, (int) $y, (int) $scale, $image, $width);
+            $lut = $this->createLut((int) $scale);
+
+            for ($y = $offset; $y <= $yOffset; $y += $step) {
+                for ($x = $offset; $x <= $xOffset; $x += $step) {
+                    $q = $this->runCascade((int) $x, (int) $y, (int) $scale, $image, $width, $lut);
 
                     if ($q > 0.0) {
                         $detections[] = new Detection($x, $y, $scale, $q);
